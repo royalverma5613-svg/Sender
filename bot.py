@@ -1,9 +1,26 @@
+import os
 import asyncio
-import sys
-from pyrogram import Client, filters, idle
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# आपकी API और Token डिटेल्स
+# 1. Render Port Binding ke liye Dummy HTTP Server (Web Service Error Fix)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is active and running 24x7!")
+
+def start_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+# Background mein HTTP server start kar rahe hain taaki Render khush rahe
+threading.Thread(target=start_dummy_server, daemon=True).start()
+
+# 2. Bot Credentials & Settings
 API_ID = 36568248
 API_HASH = "6eac9c56e572771b858607474cc177e4"
 BOT_TOKEN = "8999424037:AAGsD7V3VNBrOZ1DeaUm-qD49FT0JL6GqM4"
@@ -12,12 +29,12 @@ UPDATE_GROUP = "@data5k"
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# डेटाबेस (मेमोरी में)
+# Databases & Stats
 active_tasks = {}      
 admin_state = {}       
 stats = {"sent": 0, "failed": 0} 
 
-# कीबोर्ड मेन्यू
+# Main Keyboard Menu
 main_menu = ReplyKeyboardMarkup(
     [
         [KeyboardButton("➕ Setup New Group")],
@@ -26,36 +43,37 @@ main_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# 1. 4-Hour Health Check Update Task
+# 3. 4-Hour Health Check Update Task
 async def health_check():
+    # Thoda wait karke pehla update bhejenge
+    await asyncio.sleep(10)
     while True:
         try:
             msg = f"🟢 **Bot Status: Active & Working Fine**\n\nTotal Messages Sent: {stats['sent']}\nTotal Failed: {stats['failed']}\nActive Groups: {len(active_tasks)}"
             await app.send_message(UPDATE_GROUP, msg)
         except Exception as e:
             print(f"Update Group Error: {e}")
-        await asyncio.sleep(4 * 3600) # 4 घंटे
+        await asyncio.sleep(4 * 3600) # Har 4 ghante mein update
 
-# 2. ऑटोमैटिक मैसेज भेजने का लूप
+# 4. Auto Sender Loop (Timer ke hisab se message bhejne wala lूप)
 async def auto_sender_loop(chat_id, message_text, interval):
     while True:
+        await asyncio.sleep(interval)
         try:
             await app.send_message(chat_id, message_text)
             stats["sent"] += 1
         except Exception as e:
             stats["failed"] += 1
             print(f"Failed to send to {chat_id}: {e}")
-        
-        await asyncio.sleep(interval)
 
-# 3. Start Command (सिर्फ एडमिन के लिए)
+# 5. Start Command (Sirf Admin ke liye)
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     if message.from_user.username != ADMIN_USERNAME:
         return
     await message.reply_text("👋 Welcome Admin! Niche diye gaye Menu ka istemal karein:", reply_markup=main_menu)
 
-# 4. Menu & State Management (इंटरैक्टिव चैट)
+# 6. Interactive Menu & State Management
 @app.on_message(filters.text & filters.private)
 async def handle_text(client, message):
     if message.from_user.username != ADMIN_USERNAME:
@@ -91,7 +109,7 @@ async def handle_text(client, message):
     elif state.get("step") == 2:
         state["msg"] = text
         state["step"] = 3
-        await message.reply_text("✅ Message Saved!\n\n👉 Step 3: Ab timer set karein (Seconds mein bhejein, jaise 1 min = 60, 1 hour = 3600):")
+        await message.reply_text("✅ Message Saved!\n\n👉 Step 3: Ab timer set karein (Seconds mein bhejein, jaise 5 sec ke liye 5, 1 min ke liye 60):")
     
     elif state.get("step") == 3:
         try:
@@ -99,6 +117,7 @@ async def handle_text(client, message):
             group = state["group"]
             msg_text = state["msg"]
             
+            # Background task create karna
             task = asyncio.create_task(auto_sender_loop(group, msg_text, interval))
             active_tasks[group] = {"process": task}
             
@@ -108,23 +127,23 @@ async def handle_text(client, message):
             admin_state[user_id] = {} 
             
         except ValueError:
-            await message.reply_text("❌ Kripya sirf numbers bhejein (jaise 60 ya 120). Wapas try karein:")
+            await message.reply_text("❌ Kripya sirf numbers bhejein (jaise 5 ya 60). Wapas try karein:")
 
-# 5. Main Run Function (Render और Python 3.14+ के लिए फिक्स)
-async def main():
-    await app.start()
-    print("🤖 Bot Started Successfully!")
-    
-    asyncio.create_task(health_check())
-    
-    await idle()
-    await app.stop()
+# 7. Background Health Check Init on Start
+@app.on_raw_update()
+async def startup_hook(client, update, users, chats):
+    pass
 
+# Main Runner (Clean & Error-Free)
 if __name__ == "__main__":
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    print("🤖 Bot is starting up...")
+    # Background health check task start karne ke liye client start hone par event add karenge
+    app.start()
+    asyncio.get_event_loop().create_task(health_check())
+    print("🤖 Bot Started Successfully & HTTP Server is running!")
+    
+    # Idle block to keep script running
+    from pyrogram import idle
+    idle()
+    app.stop()
     
