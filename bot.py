@@ -10,7 +10,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is active and running!")
+        self.wfile.write(b"Bot is active!")
     def log_message(self, format, *args):
         pass 
 
@@ -30,13 +30,15 @@ ADMIN_USERS = ["egofiremax", "vcfboss3k"]
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+# DATABASE: Stores group_id -> {process, interval, msg_id, fallback_text, from_chat_id}
 active_tasks = {}      
 admin_state = {}       
 stats = {"sent": 0, "failed": 0} 
 
 main_menu = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("➕ Setup New Group")],
+        [KeyboardButton("➕ Setup New Group"), KeyboardButton("📋 Active Groups")],
+        [KeyboardButton("📢 Broadcast to All")],
         [KeyboardButton("📊 Delivery Report"), KeyboardButton("⏹ Stop All Tasks")]
     ],
     resize_keyboard=True
@@ -47,30 +49,45 @@ def is_admin(user):
         return user.username.lower() in ADMIN_USERS
     return False
 
+# --- SMART SENDER (Photo -> Text Fallback Logic) ---
+async def smart_send(client, target_chat, from_chat, msg_id, fallback_text):
+    try:
+        # Pura message (Photo + Text) copy karke bhejega
+        await client.copy_message(chat_id=target_chat, from_chat_id=from_chat, message_id=msg_id)
+        return True
+    except Exception as e:
+        # Agar group me photo allowed nahi hai, toh sirf text bhejega
+        if fallback_text:
+            try:
+                await client.send_message(chat_id=target_chat, text=fallback_text)
+                return True
+            except Exception:
+                pass
+        return False
+
 # --- 3. BACKGROUND TASKS ---
 async def health_check():
-    # Bot start hote hi thoda wait karke group me message bhejega
     await asyncio.sleep(5)
     try:
         await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**")
-    except Exception as e:
-        print(f"Update error: {e}")
+    except Exception:
+        pass
 
     while True:
         await asyncio.sleep(4 * 3600)
         try:
-            msg = f"🟢 **Bot Status: Active**\nSent: {stats['sent']}\nFailed: {stats['failed']}\nActive Tasks: {len(active_tasks)}"
+            msg = f"🟢 **Bot Status: Active**\nSent: {stats['sent']}\nFailed: {stats['failed']}\nActive Groups: {len(active_tasks)}"
             await app.send_message(UPDATE_GROUP, msg)
         except Exception:
             pass
 
-async def auto_sender_loop(chat_id, message_text, interval):
+async def auto_sender_loop(chat_id, from_chat, msg_id, fallback_text, interval):
     while True:
         await asyncio.sleep(interval)
-        try:
-            await app.send_message(chat_id, message_text)
+        success = await smart_send(app, chat_id, from_chat, msg_id, fallback_text)
+        if success:
             stats["sent"] += 1
-        except Exception:
+        else:
             stats["failed"] += 1
 
 # --- 4. MESSAGE HANDLERS ---
@@ -81,66 +98,119 @@ async def start_cmd(client, message):
     else:
         await message.reply_text("❌ Access Denied! You are not authorized.")
 
-@app.on_message(filters.text & filters.private)
-async def handle_text(client, message):
+# filters.text hata diya taaki Photo/Video sab catch ho jaye
+@app.on_message(~filters.command("start") & filters.private)
+async def handle_messages(client, message):
     if not is_admin(message.from_user):
         return
 
-    text = message.text
+    # Button text check karne ke liye safe extraction
+    btn_text = message.text if message.text else ""
     user_id = message.from_user.id
 
-    if text == "➕ Setup New Group":
+    # --- MENU ACTIONS ---
+    if btn_text == "➕ Setup New Group":
         admin_state[user_id] = {"step": 1}
         await message.reply_text("👉 Step 1: Group Username (@group) ya Chat ID bhejein:")
         return
-    elif text == "📊 Delivery Report":
-        report = f"📈 **Report**\n✅ Sent: {stats['sent']}\n❌ Failed: {stats['failed']}\n🔁 Active Tasks: {len(active_tasks)}"
+        
+    elif btn_text == "📋 Active Groups":
+        if not active_tasks:
+            await message.reply_text("🚫 Abhi tak koi group set nahi kiya gaya hai.")
+            return
+        
+        list_msg = "📋 **Active Groups Record:**\n\n"
+        for i, (grp, data) in enumerate(active_tasks.items(), 1):
+            list_msg += f"{i}. **{grp}** (Timer: {data['interval']}s)\n"
+        await message.reply_text(list_msg, reply_markup=main_menu)
+        return
+        
+    elif btn_text == "📢 Broadcast to All":
+        if not active_tasks:
+            await message.reply_text("🚫 Aapke paas koi active group nahi hai jise message bheja ja sake.")
+            return
+        admin_state[user_id] = {"step": "broadcast"}
+        await message.reply_text("📢 **Broadcast Mode:**\n\nApna Message ya Photo bhejein. Yeh turant sabhi Active Groups mein chala jayega:")
+        return
+
+    elif btn_text == "📊 Delivery Report":
+        report = f"📈 **Report**\n✅ Sent: {stats['sent']}\n❌ Failed: {stats['failed']}\n🔁 Active Groups: {len(active_tasks)}"
         await message.reply_text(report, reply_markup=main_menu)
         return
-    elif text == "⏹ Stop All Tasks":
+        
+    elif btn_text == "⏹ Stop All Tasks":
         for task in active_tasks.values():
             task["process"].cancel()
         active_tasks.clear()
         await message.reply_text("🛑 Sabhi auto-messages rok diye gaye hain.", reply_markup=main_menu)
         return
 
+    # --- STATE MACHINE (Steps Logic) ---
     state = admin_state.get(user_id, {})
+    
+    # Broadcast Mode Execution
+    if state.get("step") == "broadcast":
+        fallback = message.text or message.caption or ""
+        msg_id = message.id
+        from_chat = message.chat.id
+        sent_count = 0
+        
+        await message.reply_text("⏳ Sending broadcast to all groups...")
+        for grp in active_tasks.keys():
+            success = await smart_send(app, grp, from_chat, msg_id, fallback)
+            if success: sent_count += 1
+            
+        await message.reply_text(f"✅ Broadcast Complete!\nSuccessfully sent to {sent_count}/{len(active_tasks)} groups.", reply_markup=main_menu)
+        admin_state[user_id] = {}
+        return
+
+    # Normal Setup Mode
     if state.get("step") == 1:
-        state["group"] = text
+        state["group"] = btn_text
         state["step"] = 2
-        await message.reply_text(f"✅ Group: {text}\n👉 Step 2: Apna Message bhejein:")
+        await message.reply_text(f"✅ Group: {btn_text}\n👉 Step 2: Apna Message ya Photo bhejein:")
+        
     elif state.get("step") == 2:
-        state["msg"] = text
+        # Photo/Text ko database ke liye save kar rahe hain
+        state["msg_id"] = message.id
+        state["from_chat_id"] = message.chat.id
+        state["fallback_text"] = message.text or message.caption or ""
         state["step"] = 3
-        await message.reply_text("✅ Saved!\n👉 Step 3: Timer (seconds mein dalein, jaise 60):")
+        await message.reply_text("✅ Message/Media Saved!\n👉 Step 3: Timer (seconds mein dalein, jaise 60):")
+        
     elif state.get("step") == 3:
         try:
-            interval = int(text)
+            interval = int(btn_text)
             group = state["group"]
-            msg_text = state["msg"]
-            task = asyncio.create_task(auto_sender_loop(group, msg_text, interval))
-            active_tasks[group] = {"process": task}
-            await app.send_message(UPDATE_GROUP, f"🆕 Task Added: {group} ({interval}s)")
+            msg_id = state["msg_id"]
+            from_chat = state["from_chat_id"]
+            fallback = state["fallback_text"]
+            
+            # Start background task
+            task = asyncio.create_task(auto_sender_loop(group, from_chat, msg_id, fallback, interval))
+            
+            # Save to records
+            active_tasks[group] = {
+                "process": task,
+                "interval": interval,
+                "msg_id": msg_id,
+                "from_chat_id": from_chat,
+                "fallback_text": fallback
+            }
+            
+            await app.send_message(UPDATE_GROUP, f"🆕 New Setup: {group} ({interval}s)")
             await message.reply_text("🎉 Setup Complete!", reply_markup=main_menu)
             admin_state[user_id] = {} 
         except ValueError:
             await message.reply_text("❌ Kripya sirf number dalein:")
 
 # --- 5. APP STARTUP EVENT ---
-# Ye Pyrogram ka best tarika hai background task chalane ka
-@app.on_message(filters.regex("start_health_check_dummy_message_ignore") & filters.me)
-async def dummy_handler(client, message):
-    pass
-
 async def start_services():
     asyncio.create_task(health_check())
 
 if __name__ == "__main__":
     print("🤖 Bot is starting...")
-    # Health check ko alag thread me chalana takii Pyrogram block na ho
     loop = asyncio.get_event_loop()
     loop.create_task(health_check())
-    
-    # Ab Pyrogram ka official run method use karenge jo incoming messages catch karta hai
     app.run()
-    
+            
