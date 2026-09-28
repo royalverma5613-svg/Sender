@@ -5,30 +5,27 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# --- 1. RENDER PORT FIX (यह बहुत जरूरी है वरना Render बॉट को बंद कर देगा) ---
+# --- 1. RENDER PORT FIX ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot is active and running!")
     def log_message(self, format, *args):
-        pass # लॉग्स को साफ़ रखने के लिए HTTP लॉग्स डिसेबल कर दिए हैं
+        pass 
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# वेब सर्वर को बैकग्राउंड में स्टार्ट करना
 threading.Thread(target=start_dummy_server, daemon=True).start()
 
-# --- 2. BOT CREDENTIALS & ADMINS ---
+# --- 2. BOT CONFIG ---
 API_ID = 36568248
 API_HASH = "6eac9c56e572771b858607474cc177e4"
 BOT_TOKEN = "8999424037:AAGsD7V3VNBrOZ1DeaUm-qD49FT0JL6GqM4"
 UPDATE_GROUP = "@data5k"
-
-# सिर्फ आप और आपके दोस्त का यूज़रनेम (स्मार्ट चेकिंग के लिए)
 ADMIN_USERS = ["egofiremax", "vcfboss3k"]
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -52,10 +49,12 @@ def is_admin(user):
 
 # --- 3. BACKGROUND TASKS ---
 async def health_check():
+    # Bot start hote hi thoda wait karke group me message bhejega
+    await asyncio.sleep(5)
     try:
         await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Update error: {e}")
 
     while True:
         await asyncio.sleep(4 * 3600)
@@ -74,7 +73,7 @@ async def auto_sender_loop(chat_id, message_text, interval):
         except Exception:
             stats["failed"] += 1
 
-# --- 4. COMMAND HANDLERS ---
+# --- 4. MESSAGE HANDLERS ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     if is_admin(message.from_user):
@@ -127,15 +126,21 @@ async def handle_text(client, message):
         except ValueError:
             await message.reply_text("❌ Kripya sirf number dalein:")
 
-# --- 5. MAIN ENTRY POINT ---
-async def main():
-    await app.start()
-    print("🤖 Bot is Online and ready!")
+# --- 5. APP STARTUP EVENT ---
+# Ye Pyrogram ka best tarika hai background task chalane ka
+@app.on_message(filters.regex("start_health_check_dummy_message_ignore") & filters.me)
+async def dummy_handler(client, message):
+    pass
+
+async def start_services():
     asyncio.create_task(health_check())
-    
-    # यह लूप बॉट को मरने नहीं देगा और हमेशा मैसेज का इंतज़ार करेगा
-    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("🤖 Bot is starting...")
+    # Health check ko alag thread me chalana takii Pyrogram block na ho
+    loop = asyncio.get_event_loop()
+    loop.create_task(health_check())
+    
+    # Ab Pyrogram ka official run method use karenge jo incoming messages catch karta hai
+    app.run()
     
