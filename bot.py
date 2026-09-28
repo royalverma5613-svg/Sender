@@ -13,9 +13,9 @@ UPDATE_GROUP = "@data5k"
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # डेटाबेस (मेमोरी में)
-active_tasks = {}      # चल रहे टाइमर्स और ग्रुप्स का डेटा
-admin_state = {}       # मेन्यू के स्टेप्स ट्रैक करने के लिए
-stats = {"sent": 0, "failed": 0} # डिलीवरी रिपोर्ट
+active_tasks = {}      
+admin_state = {}       
+stats = {"sent": 0, "failed": 0} 
 
 # कीबोर्ड मेन्यू
 main_menu = ReplyKeyboardMarkup(
@@ -34,7 +34,7 @@ async def health_check():
             await app.send_message(UPDATE_GROUP, msg)
         except Exception as e:
             print(f"Update Group Error: {e}")
-        await asyncio.sleep(4 * 3600) # 4 घंटे (4 * 3600 सेकंड)
+        await asyncio.sleep(4 * 3600) # 4 घंटे
 
 # 2. ऑटोमैटिक मैसेज भेजने का लूप
 async def auto_sender_loop(chat_id, message_text, interval):
@@ -64,7 +64,6 @@ async def handle_text(client, message):
     text = message.text
     user_id = message.from_user.id
 
-    # -- बटन क्लिक हैंडलिंग --
     if text == "➕ Setup New Group":
         admin_state[user_id] = {"step": 1}
         await message.reply_text("👉 Step 1: Kripya Group ka Username (jaise @groupname) ya Chat ID bhejein:")
@@ -82,7 +81,6 @@ async def handle_text(client, message):
         await message.reply_text("🛑 Sabhi auto-messages rok diye gaye hain.", reply_markup=main_menu)
         return
 
-    # -- स्टेप-बाय-स्टेप डेटा लेना --
     state = admin_state.get(user_id, {})
     
     if state.get("step") == 1:
@@ -101,32 +99,31 @@ async def handle_text(client, message):
             group = state["group"]
             msg_text = state["msg"]
             
-            # टास्क स्टार्ट करना
             task = asyncio.create_task(auto_sender_loop(group, msg_text, interval))
             active_tasks[group] = {"process": task}
             
-            # अपडेट ग्रुप में रिपोर्ट भेजना
             await app.send_message(UPDATE_GROUP, f"🆕 New Task Added!\nGroup: {group}\nInterval: {interval}s")
             
             await message.reply_text(f"🎉 Setup Complete! Bot ab har {interval} second mein {group} par message bhejega.", reply_markup=main_menu)
-            admin_state[user_id] = {} # स्टेट क्लियर
+            admin_state[user_id] = {} 
             
         except ValueError:
             await message.reply_text("❌ Kripya sirf numbers bhejein (jaise 60 ya 120). Wapas try karein:")
 
-# 5. Main Run Function
+# 5. Main Run Function (Render और Python 3.14+ के लिए फिक्स)
 async def main():
     await app.start()
     print("🤖 Bot Started Successfully!")
     
-    # 4-hour update aur background tasks shuru karna
     asyncio.create_task(health_check())
     
     await idle()
     await app.stop()
 
 if __name__ == "__main__":
-    # Python 3.14+ के लिए Event Loop फिक्स
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main())
