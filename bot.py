@@ -1,17 +1,16 @@
 import os
-import sys
 import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# --- 1. RENDER PORT FIX (Web Service Dummy Server) ---
+# --- 1. RENDER PORT FIX ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is active and running 24x7!")
+        self.wfile.write(b"Bot is active!")
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
@@ -20,12 +19,14 @@ def start_dummy_server():
 
 threading.Thread(target=start_dummy_server, daemon=True).start()
 
-# --- 2. BOT CREDENTIALS ---
+# --- 2. BOT CREDENTIALS & ADMINS ---
 API_ID = 36568248
 API_HASH = "6eac9c56e572771b858607474cc177e4"
 BOT_TOKEN = "8999424037:AAGsD7V3VNBrOZ1DeaUm-qD49FT0JL6GqM4"
-ADMIN_USERNAME = "egofiremax"
 UPDATE_GROUP = "@data5k"
+
+# Yahan dono admins add kar diye hain
+ADMIN_USERS = ["egofiremax", "vcfboss3k"]
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -41,12 +42,20 @@ main_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# --- SMART ADMIN CHECK FUNCTION ---
+def is_admin(user):
+    if user and user.username:
+        # Username ko chote aksharon mein badal kar check karega (Case-insensitive)
+        allowed_admins = [u.lower() for u in ADMIN_USERS]
+        return user.username.lower() in allowed_admins
+    return False
+
 # --- 3. STARTUP & HEALTH CHECK ---
 async def health_check():
     try:
         await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**\n\nBot ab 24x7 active hai aur kaam karne ke liye taiyar hai.")
-    except Exception as e:
-        print(f"Startup message error: {e}")
+    except Exception:
+        pass
 
     while True:
         await asyncio.sleep(4 * 3600)
@@ -67,12 +76,14 @@ async def auto_sender_loop(chat_id, message_text, interval):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    if message.from_user.username == ADMIN_USERNAME:
-        await message.reply_text("👋 Welcome Admin!", reply_markup=main_menu)
+    if is_admin(message.from_user):
+        await message.reply_text("👋 Welcome Admin! Niche diye gaye Menu ka istemal karein:", reply_markup=main_menu)
+    else:
+        await message.reply_text(f"❌ Access Denied! Aapka username @{message.from_user.username} admin list mein nahi hai.")
 
 @app.on_message(filters.text & filters.private)
 async def handle_text(client, message):
-    if message.from_user.username != ADMIN_USERNAME:
+    if not is_admin(message.from_user):
         return
 
     text = message.text
@@ -112,15 +123,12 @@ async def handle_text(client, message):
             await app.send_message(UPDATE_GROUP, f"🆕 Task Added: {group} ({interval}s)")
             await message.reply_text("🎉 Setup Complete!", reply_markup=main_menu)
             admin_state[user_id] = {} 
-        except ValueError:  # यहाँ टाइपो ठीक कर दिया गया है (स्पेस दे दिया गया है)
+        except ValueError:
             await message.reply_text("❌ Kripya sirf number dalein:")
 
-# --- 4. MAIN RUNNER (PYTHON 3.10 SAFE) ---
+# --- 4. MAIN RUNNER ---
 async def main():
-    print("🤖 Starting Pyrogram Client...")
     await app.start()
-    print("🤖 Bot is Online!")
-    
     asyncio.create_task(health_check())
     
     try:
