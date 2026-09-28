@@ -43,13 +43,11 @@ main_menu = ReplyKeyboardMarkup(
 
 # --- 3. STARTUP & HEALTH CHECK ---
 async def health_check():
-    # jaise hi server start hoga, update group mein turant message jayega
     try:
         await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**\n\nBot ab 24x7 active hai aur kaam karne ke liye taiyar hai.")
     except Exception as e:
         print(f"Startup message error: {e}")
 
-    # Har 4 ghante mein status update
     while True:
         await asyncio.sleep(4 * 3600)
         try:
@@ -114,19 +112,17 @@ async def handle_text(client, message):
             await app.send_message(UPDATE_GROUP, f"🆕 Task Added: {group} ({interval}s)")
             await message.reply_text("🎉 Setup Complete!", reply_markup=main_menu)
             admin_state[user_id] = {} 
-        exceptValueError:
+        except ValueError:  # यहाँ टाइपो ठीक कर दिया गया है (स्पेस दे दिया गया है)
             await message.reply_text("❌ Kripya sirf number dalein:")
 
-# --- 4. MAIN RUNNER (PYTHON 3.14 SAFE) ---
+# --- 4. MAIN RUNNER (PYTHON 3.10 SAFE) ---
 async def main():
     print("🤖 Starting Pyrogram Client...")
     await app.start()
     print("🤖 Bot is Online!")
     
-    # Startup message aur health check task shuru karna
     asyncio.create_task(health_check())
     
-    # Safe infinite loop (replaces pyrogram.idle() to avoid crash)
     try:
         while True:
             await asyncio.sleep(3600)
