@@ -5,18 +5,21 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# --- 1. RENDER PORT FIX ---
+# --- 1. RENDER PORT FIX (यह बहुत जरूरी है वरना Render बॉट को बंद कर देगा) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is active!")
+        self.wfile.write(b"Bot is active and running!")
+    def log_message(self, format, *args):
+        pass # लॉग्स को साफ़ रखने के लिए HTTP लॉग्स डिसेबल कर दिए हैं
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
+# वेब सर्वर को बैकग्राउंड में स्टार्ट करना
 threading.Thread(target=start_dummy_server, daemon=True).start()
 
 # --- 2. BOT CREDENTIALS & ADMINS ---
@@ -25,7 +28,7 @@ API_HASH = "6eac9c56e572771b858607474cc177e4"
 BOT_TOKEN = "8999424037:AAGsD7V3VNBrOZ1DeaUm-qD49FT0JL6GqM4"
 UPDATE_GROUP = "@data5k"
 
-# Aapke aur dost ke usernames (chote aksharon mein)
+# सिर्फ आप और आपके दोस्त का यूज़रनेम (स्मार्ट चेकिंग के लिए)
 ADMIN_USERS = ["egofiremax", "vcfboss3k"]
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -44,12 +47,10 @@ main_menu = ReplyKeyboardMarkup(
 
 def is_admin(user):
     if user and user.username:
-        print(f"DEBUG: Incoming user username -> {user.username}") # Render logs mein dikhega
-        return user.username.lower() in [u.lower() for u in ADMIN_USERS]
-    print(f"DEBUG: User has no username set! User ID: {user.id if user else 'Unknown'}")
+        return user.username.lower() in ADMIN_USERS
     return False
 
-# --- 3. STARTUP & HEALTH CHECK ---
+# --- 3. BACKGROUND TASKS ---
 async def health_check():
     try:
         await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**")
@@ -73,16 +74,13 @@ async def auto_sender_loop(chat_id, message_text, interval):
         except Exception:
             stats["failed"] += 1
 
+# --- 4. COMMAND HANDLERS ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    user = message.from_user
-    print(f"DEBUG /start command received from: {user.first_name} (@{user.username}, ID: {user.id})")
-    
-    if is_admin(user):
+    if is_admin(message.from_user):
         await message.reply_text("👋 Welcome Admin! Niche diye gaye Menu ka istemal karein:", reply_markup=main_menu)
     else:
-        username_str = f"@{user.username}" if user.username else "No Username"
-        await message.reply_text(f"❌ Access Denied!\nAapka username: {username_str}\nAap admin list mein nahi hain.")
+        await message.reply_text("❌ Access Denied! You are not authorized.")
 
 @app.on_message(filters.text & filters.private)
 async def handle_text(client, message):
@@ -129,18 +127,14 @@ async def handle_text(client, message):
         except ValueError:
             await message.reply_text("❌ Kripya sirf number dalein:")
 
-# --- 4. MAIN RUNNER ---
+# --- 5. MAIN ENTRY POINT ---
 async def main():
     await app.start()
+    print("🤖 Bot is Online and ready!")
     asyncio.create_task(health_check())
     
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await app.stop()
+    # यह लूप बॉट को मरने नहीं देगा और हमेशा मैसेज का इंतज़ार करेगा
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
