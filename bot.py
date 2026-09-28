@@ -25,7 +25,7 @@ API_HASH = "6eac9c56e572771b858607474cc177e4"
 BOT_TOKEN = "8999424037:AAGsD7V3VNBrOZ1DeaUm-qD49FT0JL6GqM4"
 UPDATE_GROUP = "@data5k"
 
-# Yahan dono admins add kar diye hain
+# Aapke aur dost ke usernames (chote aksharon mein)
 ADMIN_USERS = ["egofiremax", "vcfboss3k"]
 
 app = Client("my_advanced_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -42,18 +42,17 @@ main_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# --- SMART ADMIN CHECK FUNCTION ---
 def is_admin(user):
     if user and user.username:
-        # Username ko chote aksharon mein badal kar check karega (Case-insensitive)
-        allowed_admins = [u.lower() for u in ADMIN_USERS]
-        return user.username.lower() in allowed_admins
+        print(f"DEBUG: Incoming user username -> {user.username}") # Render logs mein dikhega
+        return user.username.lower() in [u.lower() for u in ADMIN_USERS]
+    print(f"DEBUG: User has no username set! User ID: {user.id if user else 'Unknown'}")
     return False
 
 # --- 3. STARTUP & HEALTH CHECK ---
 async def health_check():
     try:
-        await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**\n\nBot ab 24x7 active hai aur kaam karne ke liye taiyar hai.")
+        await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**")
     except Exception:
         pass
 
@@ -76,10 +75,14 @@ async def auto_sender_loop(chat_id, message_text, interval):
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    if is_admin(message.from_user):
+    user = message.from_user
+    print(f"DEBUG /start command received from: {user.first_name} (@{user.username}, ID: {user.id})")
+    
+    if is_admin(user):
         await message.reply_text("👋 Welcome Admin! Niche diye gaye Menu ka istemal karein:", reply_markup=main_menu)
     else:
-        await message.reply_text(f"❌ Access Denied! Aapka username @{message.from_user.username} admin list mein nahi hai.")
+        username_str = f"@{user.username}" if user.username else "No Username"
+        await message.reply_text(f"❌ Access Denied!\nAapka username: {username_str}\nAap admin list mein nahi hain.")
 
 @app.on_message(filters.text & filters.private)
 async def handle_text(client, message):
