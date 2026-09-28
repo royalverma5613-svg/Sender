@@ -3,7 +3,7 @@ import sys
 import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 # --- 1. RENDER PORT FIX (Web Service Dummy Server) ---
@@ -41,15 +41,22 @@ main_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# --- 3. STARTUP & HEALTH CHECK ---
 async def health_check():
-    await asyncio.sleep(10)
+    # jaise hi server start hoga, update group mein turant message jayega
+    try:
+        await app.send_message(UPDATE_GROUP, "🚀 **Bot Server Successfully Started & Online!**\n\nBot ab 24x7 active hai aur kaam karne ke liye taiyar hai.")
+    except Exception as e:
+        print(f"Startup message error: {e}")
+
+    # Har 4 ghante mein status update
     while True:
+        await asyncio.sleep(4 * 3600)
         try:
-            msg = f"🟢 **Bot Status: Active**\nSent: {stats['sent']}\nFailed: {stats['failed']}\nActive: {len(active_tasks)}"
+            msg = f"🟢 **Bot Status: Active**\nSent: {stats['sent']}\nFailed: {stats['failed']}\nActive Tasks: {len(active_tasks)}"
             await app.send_message(UPDATE_GROUP, msg)
         except Exception:
             pass
-        await asyncio.sleep(4 * 3600)
 
 async def auto_sender_loop(chat_id, message_text, interval):
     while True:
@@ -75,7 +82,7 @@ async def handle_text(client, message):
 
     if text == "➕ Setup New Group":
         admin_state[user_id] = {"step": 1}
-        await message.reply_text("👉 Step 1: Group Username (@group) ya Chat ID:")
+        await message.reply_text("👉 Step 1: Group Username (@group) ya Chat ID bhejein:")
         return
     elif text == "📊 Delivery Report":
         report = f"📈 **Report**\n✅ Sent: {stats['sent']}\n❌ Failed: {stats['failed']}\n🔁 Active Tasks: {len(active_tasks)}"
@@ -107,19 +114,27 @@ async def handle_text(client, message):
             await app.send_message(UPDATE_GROUP, f"🆕 Task Added: {group} ({interval}s)")
             await message.reply_text("🎉 Setup Complete!", reply_markup=main_menu)
             admin_state[user_id] = {} 
-        except ValueError:
+        exceptValueError:
             await message.reply_text("❌ Kripya sirf number dalein:")
 
-# --- 3. THE REAL FIX FOR PYTHON 3.14+ EVENT LOOP ---
+# --- 4. MAIN RUNNER (PYTHON 3.14 SAFE) ---
 async def main():
     print("🤖 Starting Pyrogram Client...")
     await app.start()
-    asyncio.create_task(health_check())
     print("🤖 Bot is Online!")
-    await idle()
-    await app.stop()
+    
+    # Startup message aur health check task shuru karna
+    asyncio.create_task(health_check())
+    
+    # Safe infinite loop (replaces pyrogram.idle() to avoid crash)
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await app.stop()
 
 if __name__ == "__main__":
-    # asyncio.run() ensures the event loop is created and set properly in the main thread
     asyncio.run(main())
     
