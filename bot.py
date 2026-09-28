@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from pyrogram import Client, filters, idle
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 
@@ -124,4 +125,9 @@ async def main():
     await idle()
     await app.stop()
 
-app.run(main())
+if __name__ == "__main__":
+    # Python 3.14+ के लिए Event Loop फिक्स
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+    
